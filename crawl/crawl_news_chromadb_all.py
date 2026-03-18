@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-游戏日报资讯爬虫 + 向量入库
+游戏日报资讯爬虫 + 向量入库（带已存在/新增标注）
 功能：
 1. 爬取游戏日报资讯栏目
 2. 只保留标题包含：腾讯 / 网易 / 米哈游 的文章
-3. 抓取文章正文
-4. 分块
-5. 写入 Chroma 向量数据库
+3. 在爬取时判断文章是否已存在于向量库
+4. 标注 [已存在] / [新增]
+5. 新文章抓取正文、分块并写入 Chroma 向量数据库
 
 说明：
 - page=1 使用 https://news.yxrb.net/info/
@@ -218,13 +218,11 @@ def parse_article_detail(html: str, url: str, fallback_title: str = "") -> Artic
     # 正文：优先抽正文段落
     paragraphs = []
 
-    # 方案1：抓所有 p
     for p in soup.find_all("p"):
         txt = p.get_text(" ", strip=True)
         if txt and len(txt) > 10:
             paragraphs.append(txt)
 
-    # 方案2：如果 p 太少，退化为抓 div/正文区文本
     if len(paragraphs) < 3:
         candidates = soup.find_all(["div", "article"])
         blocks = []
@@ -233,7 +231,6 @@ def parse_article_detail(html: str, url: str, fallback_title: str = "") -> Artic
             if txt and len(txt) > 200:
                 blocks.append(txt)
         if blocks:
-            # 取最长块
             body = max(blocks, key=len)
             paragraphs = [line.strip() for line in body.splitlines() if len(line.strip()) > 10]
 
@@ -269,6 +266,19 @@ def get_chroma_collection():
     return collection
 
 
+def article_exists_in_vector_db(collection, doc_id: str) -> bool:
+    """
+    通过检查第一块 chunk 是否存在，判断文章是否已入向量库
+    """
+    chunk0_id = f"{doc_id}_chunk_0"
+    try:
+        result = collection.get(ids=[chunk0_id])
+        ids = result.get("ids", [])
+        return len(ids) > 0
+    except Exception:
+        return False
+
+
 def upsert_article_to_vector_db(collection, article: Article):
     chunks = split_text(article.content)
 
@@ -296,7 +306,6 @@ def upsert_article_to_vector_db(collection, article: Article):
             "text_type": "news_content",
         })
 
-    # 用 upsert，重复跑不会反复插入同一批 chunk
     collection.upsert(
         ids=ids,
         documents=documents,
@@ -314,7 +323,8 @@ def crawl_all_info_articles(max_pages: Optional[int] = None):
 
     page = 1
     total_articles = 0
-    matched_articles = 0
+    inserted_articles = 0
+    existing_articles = 0
 
     while True:
         if max_pages is not None and page > max_pages:
@@ -331,14 +341,22 @@ def crawl_all_info_articles(max_pages: Optional[int] = None):
 
         article_links = parse_article_links_from_list(html)
 
-        # 如果这一页已经没有文章链接，通常说明翻到头了
         if not article_links:
             print(f"[停止] 第 {page} 页未发现目标文章")
             break
 
         for title, url in article_links:
             total_articles += 1
-            print(f"[匹配] {title}")
+
+            doc_id = make_doc_id(url)
+            exists = article_exists_in_vector_db(collection, doc_id)
+
+            if exists:
+                existing_articles += 1
+                print(f"[已存在] {title}")
+                continue
+
+            print(f"[新增] {title}")
 
             try:
                 detail_html = fetch_html(session, url)
@@ -349,8 +367,9 @@ def crawl_all_info_articles(max_pages: Optional[int] = None):
                     continue
 
                 upsert_article_to_vector_db(collection, article)
-                matched_articles += 1
+                inserted_articles += 1
                 print(f"[入库] {article.title}")
+
             except Exception as e:
                 print(f"[失败] 文章抓取失败: {url}, error={e}")
 
@@ -358,7 +377,8 @@ def crawl_all_info_articles(max_pages: Optional[int] = None):
 
     print("\n===== 完成 =====")
     print(f"命中标题文章数: {total_articles}")
-    print(f"成功写入向量库文章数: {matched_articles}")
+    print(f"已存在文章数: {existing_articles}")
+    print(f"新增入库文章数: {inserted_articles}")
 
 
 # =========================
@@ -381,8 +401,7 @@ def search_news(query: str, company_name: Optional[str] = None, top_k: int = 5):
 
 
 if __name__ == "__main__":
-    # 全量历史页很多，初次建议先测试 max_pages=5
-    # 正式全量抓取时改成 None
+    # 初次建议先测试较小页数
     crawl_all_info_articles(max_pages=50)
 
     # 查询示例

@@ -1,4 +1,15 @@
-ROUTER_SYSTEM_PROMPT = """
+"""
+Router Prompt 构造函数
+"""
+
+from __future__ import annotations
+
+
+def build_router_prompt(question: str) -> str:
+    """
+    构造 Router 的 JSON 输出提示词
+    """
+    return f"""
 你是企业招聘情报分析系统的主控路由智能体。
 
 你的职责不是回答问题，而是判断用户问题的处理路径，为后续模块生成稳定、可执行的调度决策。
@@ -81,4 +92,6 @@ ROUTER_SYSTEM_PROMPT = """
 3. 不要生成检索结果
 4. 不要添加多余字段
 5. 输出必须是合法 JSON
-"""
+用户问题：
+{question}
+""".strip()

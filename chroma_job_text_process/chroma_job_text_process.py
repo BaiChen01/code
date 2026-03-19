@@ -276,6 +276,13 @@ def vectorize_incremental():
     print(f"切块数: {total_chunks}")
     print(f"状态时间已更新: {now_str}")
 
+    def search(self, query: str, top_k=5):
+        query_emb = self.embed(query)
+        results = self.collection.query(
+            query_embeddings=[query_emb],
+            n_results=top_k
+        )
+        return results
 
 if __name__ == "__main__":
     mode = "full"   # 改成 full 可执行全量

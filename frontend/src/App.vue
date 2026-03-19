@@ -17,6 +17,12 @@ const quickPrompts = [
   "画出各企业岗位数量对比图",
 ];
 
+const heroFacts = [
+  { label: "Flow", value: "LangGraph" },
+  { label: "State", value: "Session History + Local Save" },
+  { label: "Run", value: "Vue + FastAPI" },
+];
+
 function safeId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -144,12 +150,19 @@ function loadSessions() {
 }
 
 const sessions = ref(loadSessions());
-const activeSessionId = ref(localStorage.getItem(ACTIVE_SESSION_KEY) || sessions.value[0].id);
+const activeSessionId = ref(
+  localStorage.getItem(ACTIVE_SESSION_KEY) || sessions.value[0].id
+);
 const loading = ref(false);
-const storageNote = ref("当前会话会自动保存到浏览器本地存储，刷新页面后可继续使用。");
+const storageNote = ref(
+  "当前会话会自动保存到浏览器本地存储，刷新页面后可继续使用。"
+);
 
 const activeSession = computed(() => {
-  return sessions.value.find((session) => session.id === activeSessionId.value) || sessions.value[0];
+  return (
+    sessions.value.find((session) => session.id === activeSessionId.value) ||
+    sessions.value[0]
+  );
 });
 
 const sortedSessions = computed(() => {
@@ -196,6 +209,7 @@ function schedulePersist() {
   if (persistTimer) {
     clearTimeout(persistTimer);
   }
+
   persistTimer = setTimeout(() => {
     try {
       const trimmed = sortedSessions.value
@@ -232,6 +246,7 @@ function appendMessage(role, text, payload = null) {
   if (!activeSession.value) {
     return;
   }
+
   activeSession.value.messages.push(
     createMessage(role, text, payload ? sanitizePayload(payload) : null)
   );
@@ -248,10 +263,12 @@ function renameSession() {
   if (!activeSession.value) {
     return;
   }
+
   const nextName = window.prompt("输入新的会话名称", activeSession.value.title);
   if (!nextName) {
     return;
   }
+
   activeSession.value.title = nextName.trim() || activeSession.value.title;
   touchSession(activeSession.value);
 }
@@ -260,7 +277,10 @@ function exportSession() {
   if (!activeSession.value) {
     return;
   }
-  const fileName = `${activeSession.value.title.replace(/[^\w\u4e00-\u9fa5-]+/g, "_") || "session"}.json`;
+
+  const fileName = `${
+    activeSession.value.title.replace(/[^\w\u4e00-\u9fa5-]+/g, "_") || "session"
+  }.json`;
   const blob = new Blob([JSON.stringify(sanitizeSession(activeSession.value), null, 2)], {
     type: "application/json;charset=utf-8",
   });
@@ -276,6 +296,7 @@ function clearStorage() {
   if (!window.confirm("确定清空所有本地会话记录吗？")) {
     return;
   }
+
   const fresh = createSession();
   sessions.value = [fresh];
   activeSessionId.value = fresh.id;
@@ -293,6 +314,7 @@ function deleteSession(sessionId) {
   if (!target) {
     return;
   }
+
   if (!window.confirm(`确定删除会话“${target.title}”吗？`)) {
     return;
   }
@@ -304,6 +326,7 @@ function deleteSession(sessionId) {
     activeSessionId.value = fresh.id;
     return;
   }
+
   if (activeSessionId.value === sessionId) {
     activeSessionId.value = sessions.value[0].id;
   }
@@ -311,9 +334,7 @@ function deleteSession(sessionId) {
 
 function normalizeErrorDetail(detail) {
   if (Array.isArray(detail)) {
-    return detail
-      .map((item) => item.msg || JSON.stringify(item))
-      .join(" | ");
+    return detail.map((item) => item.msg || JSON.stringify(item)).join(" | ");
   }
   if (typeof detail === "string") {
     return detail;
@@ -383,27 +404,21 @@ function runQuickPrompt(question) {
 <template>
   <div class="page-noise"></div>
   <div class="app-shell">
-    <header class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Game Intel Agent Console</p>
-        <h1>招聘与资讯双库智能分析台</h1>
+    <header class="hero hero-compact card">
+      <div class="hero-main">
+        <div>
+          <p class="eyebrow">Game Intel Agent Console</p>
+          <h1>招聘与资讯双库智能分析台</h1>
+        </div>
         <p class="hero-text">
-          Vue 前端已经接入本地会话持久化、证据展示、图表区和执行轨迹面板。
-          现在更适合做正式联调和连续多轮测试。
+          面向正式联调的 Vue 控制台，支持多会话、本地保存、证据展示、图表区和执行轨迹面板。
         </p>
       </div>
-      <div class="hero-metrics">
-        <div class="metric-card">
-          <span class="metric-label">Flow</span>
-          <strong>LangGraph</strong>
-        </div>
-        <div class="metric-card">
-          <span class="metric-label">State</span>
-          <strong>Session History + Local Save</strong>
-        </div>
-        <div class="metric-card">
-          <span class="metric-label">Run</span>
-          <strong>Vue + FastAPI</strong>
+
+      <div class="hero-facts">
+        <div v-for="fact in heroFacts" :key="fact.label" class="metric-pill">
+          <span class="metric-label">{{ fact.label }}</span>
+          <strong>{{ fact.value }}</strong>
         </div>
       </div>
     </header>
@@ -422,7 +437,7 @@ function runQuickPrompt(question) {
       />
 
       <section class="chat-column">
-        <div class="panel card">
+        <div class="panel card chat-panel">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Conversation</p>

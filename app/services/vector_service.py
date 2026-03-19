@@ -147,24 +147,41 @@ class VectorService:
         company_name: Optional[str] = None,
         text_type: Optional[str] = None,
     ) -> Dict:
-        where = {}
+        """
+        向量检索
+
+        说明：
+        - Chroma 的 where 条件不能直接传多个平级字段
+        - 多条件时必须显式使用 $and
+        """
+        conditions = []
+
         if company_name:
-            where["company_name"] = company_name
+            conditions.append({"company_name": company_name})
+
         if text_type:
-            where["text_type"] = text_type
+            conditions.append({"text_type": text_type})
 
-        if where:
+        # 没有过滤条件：直接查
+        if not conditions:
             result = self.collection.query(
                 query_texts=[query],
                 n_results=top_k,
-                where=where,
             )
+            return result
+
+        # 只有一个条件：直接传单条件
+        if len(conditions) == 1:
+            where = conditions[0]
         else:
-            result = self.collection.query(
-                query_texts=[query],
-                n_results=top_k,
-            )
-        return result
+            # 多个条件：用 $and 包起来
+            where = {"$and": conditions}
 
+        result = self.collection.query(
+            query_texts=[query],
+            n_results=top_k,
+            where=where,
+        )
+        return result
     def count(self) -> int:
         return self.collection.count()

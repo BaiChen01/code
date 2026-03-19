@@ -1,69 +1,84 @@
+# -*- coding: utf-8 -*-
+"""SQL prompt builders."""
+
+from __future__ import annotations
+
+import json
+
+from langchain_core.prompts import ChatPromptTemplate
+
+
 SQL_SYSTEM_PROMPT = """
-你是企业招聘情报分析系统中的 SQL 查询智能体。
+你是游戏企业招聘情报系统中的 SQL Agent。
+你的任务是把用户问题中“能够由当前招聘数据库直接回答的结构化部分”转换成安全、保守、可执行的单条 MySQL SELECT 语句。
 
-你的职责是根据用户问题，基于给定数据库结构生成安全、可执行、准确的 SQL 查询语句，用于查询招聘结构化数据。
+硬性约束：
+1. 只能输出单条 SELECT SQL。
+2. 不允许 INSERT、UPDATE、DELETE、DROP、ALTER、TRUNCATE、CREATE、REPLACE。
+3. 只能使用 schema 中给出的表和字段。
+4. 如果原问题包含资讯、报道、外部新闻、综合判断、推理结论等非 SQL 部分，必须忽略这些部分，只保留可由招聘数据库回答的子问题。
+5. 优先围绕岗位数量、岗位分布、城市分布、产品线分布、岗位明细等招聘结构化事实生成 SQL。
+6. 只有在当前 schema 中连合理的结构化子问题都无法抽取时，才返回 success=false 和 error。
+7. 返回 JSON，不要输出解释文字。
 
-你只能执行“查询”任务，不能做任何写操作。
+返回字段：
+- success: 布尔值
+- sql: 生成的 SQL
+- query_intent: 结构化查询意图
+- reason: 生成原因
+- error: 失败原因
+""".strip()
 
-【目标】
-将用户问题转换为一条 MySQL SELECT 语句。
 
-【数据库用途】
-数据库中存储的是游戏企业招聘信息的结构化字段，包括企业名、岗位名称、产品线、城市、来源链接、抓取时间等。
+def get_sql_prompt_template() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", SQL_SYSTEM_PROMPT),
+            (
+                "human",
+                """
+数据库 schema：
+{schema_info}
 
-【允许的 SQL 类型】
-只允许：
-- SELECT
-- WHERE
-- GROUP BY
-- ORDER BY
-- LIMIT
-- COUNT
-- DISTINCT
-- JOIN（仅在确有必要且表关系明确时使用）
+路由过滤条件：
+{filters_json}
 
-【禁止的 SQL 类型】
-绝对禁止：
-- INSERT
-- UPDATE
-- DELETE
-- DROP
-- ALTER
-- TRUNCATE
-- CREATE
-- REPLACE
+用户问题：
+{question}
 
-【生成原则】
-1. 优先使用最简单、最稳定的查询
-2. 只使用 schema 中存在的表和字段
-3. 不得编造表名或字段名
-4. 若问题未要求返回全部数据，必须加 LIMIT
-5. 若是统计类问题，应优先使用 COUNT / GROUP BY
-6. 若问题表达模糊，应生成最合理、最保守的查询
-7. 若无法根据 schema 正确生成 SQL，则返回 error 字段而不是胡乱编造
+SQL 任务聚焦：
+{sql_task}
 
-【输出要求】
-你必须只输出一个 JSON 对象，不能输出解释文字。
+上一轮 SQL（如果有）：
+{previous_sql}
 
-【输出格式】
-成功时：
-{
-  "success": true,
-  "sql": "SELECT ...",
-  "query_intent": "统计企业岗位数量",
-  "reason": "根据用户问题需要统计各企业岗位数，因此使用 GROUP BY company_name"
-}
+上一轮错误（如果有）：
+{previous_error}
 
-失败时：
-{
-  "success": false,
-  "error": "无法根据现有 schema 确定字段或表"
-}
+请返回 JSON。
+""".strip(),
+            ),
+        ]
+    )
 
-【硬性约束】
-1. 输出必须是合法 JSON
-2. sql 字段中只能是单条 SELECT 语句
-3. 不允许多条 SQL
-4. 不允许使用不存在的字段
-5. 不允许输出 markdown 代码块
-"""
+
+def build_sql_prompt(
+    *,
+    schema_info: str,
+    question: str,
+    filters: dict,
+    sql_task: str,
+    previous_sql: str = "",
+    previous_error: str = "",
+) -> str:
+    prompt = get_sql_prompt_template().invoke(
+        {
+            "schema_info": schema_info,
+            "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+            "question": question,
+            "sql_task": sql_task,
+            "previous_sql": previous_sql or "N/A",
+            "previous_error": previous_error or "N/A",
+        }
+    )
+    return prompt.to_string()

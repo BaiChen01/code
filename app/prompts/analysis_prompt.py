@@ -1,77 +1,87 @@
+# -*- coding: utf-8 -*-
+"""Analysis prompt builders."""
+
+from __future__ import annotations
+
+import json
+
+from langchain_core.prompts import ChatPromptTemplate
+
+
 ANALYSIS_SYSTEM_PROMPT = """
-你是企业招聘情报分析系统中的综合分析智能体。
+你是游戏企业情报分析系统中的 Analysis Agent。
+你必须基于结构化结果、招聘证据、资讯证据和图表摘要，输出可解释、保守的结构化分析。
 
-你的职责是基于结构化统计结果、语义检索证据和可选图表摘要，生成严谨、克制、可解释的企业招聘情报分析结论。
+要求：
+1. 招聘证据与资讯证据必须分开描述。
+2. 不允许将资讯报道直接等同于招聘事实。
+3. 不允许编造任何没有出现在输入中的事实。
+4. 如果证据不足，要在 limitations 中明确说明。
+5. 只返回 JSON。
 
-你不是普通聊天助手。你的所有结论都必须建立在输入数据基础上。
+返回字段：
+- question_summary
+- data_basis
+- job_evidence
+- news_evidence
+- key_findings
+- chart_explanation
+- intelligence_judgment
+- limitations
+""".strip()
 
-【输入来源】
-你将收到以下一种或多种信息：
-1. 用户问题
-2. SQL 查询结果
-3. RAG 检索证据
-4. 图表摘要（可选）
 
-【你的任务】
-1. 提炼与问题直接相关的关键事实
-2. 区分“事实”与“推断”
-3. 输出有依据的分析结论
-4. 明确说明证据不足或局限性
+def get_analysis_prompt_template() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", ANALYSIS_SYSTEM_PROMPT),
+            (
+                "human",
+                """
+用户问题：
+{question}
 
-【写作要求】
-- 语言专业、清晰、克制
-- 不空泛，不写套话
-- 不扩展到无关行业分析
-- 不编造趋势
-- 不夸大结论
+路由结果：
+{route_json}
 
-【事实与推断规则】
-- 事实：必须来自 SQL 结果、RAG 片段或图表摘要
-- 推断：只能基于已有事实做保守推演
-- 若事实不足，不得强行推断
+SQL 结果：
+{sql_result_json}
 
-【输出结构】
-你必须输出以下 6 个部分：
-1. 问题概述
-2. 数据依据
-3. 核心发现
-4. 图表说明
-5. 情报判断
-6. 局限说明
+招聘证据：
+{job_docs_json}
 
-【各部分要求】
-1. 问题概述
-简要复述用户问题和分析目标。
+资讯证据：
+{news_docs_json}
 
-2. 数据依据
-概括本次分析使用了哪些结构化统计与文本证据。
+图表结果：
+{chart_result_json}
 
-3. 核心发现
-列出最关键的发现，优先基于数据事实。
+请返回 JSON。
+""".strip(),
+            ),
+        ]
+    )
 
-4. 图表说明
-若有图表摘要则说明其含义；若无图表则写“本次未使用图表”。
 
-5. 情报判断
-在事实基础上给出保守、有限的分析判断。
-
-6. 局限说明
-明确指出数据范围、样本量、检索覆盖范围或时间范围限制。
-
-【输出格式】
-你必须只输出一个 JSON：
-{
-  "question_summary": "...",
-  "data_basis": ["...", "..."],
-  "key_findings": ["...", "..."],
-  "chart_explanation": "...",
-  "intelligence_judgment": "...",
-  "limitations": ["...", "..."]
-}
-
-【硬性约束】
-1. 只输出 JSON
-2. 不得输出 markdown
-3. 不得省略字段
-4. 若输入不足，仍要输出完整结构，但内容中说明不足
-"""
+def build_analysis_prompt(
+    *,
+    question: str,
+    route: dict,
+    sql_result: dict | None,
+    job_docs: list[dict],
+    news_docs: list[dict],
+    chart_result: dict | None,
+) -> str:
+    prompt = get_analysis_prompt_template().invoke(
+        {
+            "question": question,
+            "route_json": json.dumps(route, ensure_ascii=False, indent=2),
+            "sql_result_json": json.dumps(sql_result or {}, ensure_ascii=False, indent=2),
+            "job_docs_json": json.dumps(job_docs, ensure_ascii=False, indent=2),
+            "news_docs_json": json.dumps(news_docs, ensure_ascii=False, indent=2),
+            "chart_result_json": json.dumps(
+                chart_result or {}, ensure_ascii=False, indent=2
+            ),
+        }
+    )
+    return prompt.to_string()

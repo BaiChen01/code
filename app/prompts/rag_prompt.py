@@ -1,79 +1,111 @@
-RAG_SYSTEM_PROMPT = """
-你是企业招聘情报分析系统中的语义检索智能体。
+# -*- coding: utf-8 -*-
+"""RAG prompt builders."""
 
-你的职责不是自由回答，而是基于招聘要求、岗位职责等文本知识片段进行检索与证据组织。
+from __future__ import annotations
 
-【你的任务】
-1. 理解用户问题的语义检索目标
-2. 提取可能的过滤条件
-3. 基于检索到的文本片段组织证据
-4. 回答时只能依据检索片段，不得编造
+import json
 
-【知识来源】
-你的证据来源仅包括以下文本类型：
-- requirement：招聘要求
-- responsibility：岗位职责
+from langchain_core.prompts import ChatPromptTemplate
 
-【你需要重点识别的信息】
-- company_name：企业名称
-- job_title：岗位名称
-- product_line：产品线
-- job_location：工作地点
-- text_type：requirement 或 responsibility
-- semantic_target：用户真正关心的技能、职责、方向、能力要求
 
-【输出目标】
-你需要把问题转化为适合检索系统理解的结构化结果。
+RAG_QUERY_SYSTEM_PROMPT = """
+你是双知识库检索系统中的 Query Rewrite Agent。
+你负责把用户问题改写成更适合向量检索的查询文本。
 
-【输出格式】
-{
-  "query_text": "用于向量检索的核心查询文本",
-  "filters": {
-    "company_name": null,
-    "job_title": null,
-    "product_line": null,
-    "job_location": null,
-    "text_type": null
-  },
-  "retrieval_goal": "一句话说明要检索什么"
-}
+你会面对两类知识库：
+- job: 招聘岗位要求与岗位职责
+- news: 游戏行业资讯与报道
 
-【字段填写规则】
-- 若用户明确提到企业，则填写 company_name
-- 若用户明确提到城市，则填写 job_location
-- 若用户问“要求”“技能”“经验”，text_type 优先为 requirement
-- 若用户问“职责”“负责什么”，text_type 优先为 responsibility
-- 若无法确定，则 text_type 为 null
+要求：
+1. 不要回答问题，只做查询改写。
+2. 如果问题更偏任职要求/岗位职责，text_type 优先输出 requirement 或 responsibility。
+3. 如果无法确定 text_type，输出 null。
+4. 只返回 JSON。
 
-【硬性约束】
-1. 只输出 JSON
-2. 不输出解释
-3. 不回答最终问题
-4. 不伪造事实
-5. JSON 必须合法
-"""
-RAG_ANSWER_PROMPT = """
-你将收到用户问题和若干检索到的招聘文本证据。
+返回字段：
+- query_text
+- text_type
+- retrieval_goal
+""".strip()
 
-你的任务是基于这些证据回答问题。
 
-【回答规则】
-1. 只能使用提供的证据
-2. 不得补充证据中没有的信息
-3. 若证据不足，必须明确说“现有检索证据不足以支持明确结论”
-4. 回答中尽量点明岗位名称、企业名称、文本类型
-5. 不输出与招聘情报无关的泛化内容
+RAG_ANSWER_SYSTEM_PROMPT = """
+你是双知识库检索结果整理 Agent。
+请基于提供的检索证据给出简洁回答，不允许编造证据中没有的结论。
 
-【输出格式】
-{
-  "answer": "...",
-  "evidence_used": [
-    {
-      "company_name": "...",
-      "job_title": "...",
-      "text_type": "...",
-      "snippet": "..."
-    }
-  ]
-}
-"""
+返回字段：
+- answer
+- job_evidence
+- news_evidence
+""".strip()
+
+
+def get_rag_query_prompt_template() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", RAG_QUERY_SYSTEM_PROMPT),
+            (
+                "human",
+                """
+检索范围：{source_scope}
+路由过滤条件：
+{filters_json}
+
+用户问题：
+{question}
+
+请返回 JSON。
+""".strip(),
+            ),
+        ]
+    )
+
+
+def get_rag_answer_prompt_template() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", RAG_ANSWER_SYSTEM_PROMPT),
+            (
+                "human",
+                """
+用户问题：
+{question}
+
+招聘证据：
+{job_docs_json}
+
+资讯证据：
+{news_docs_json}
+
+请返回 JSON。
+""".strip(),
+            ),
+        ]
+    )
+
+
+def build_rag_query_prompt(question: str, source_scope: str, filters: dict) -> str:
+    prompt = get_rag_query_prompt_template().invoke(
+        {
+            "question": question,
+            "source_scope": source_scope,
+            "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+        }
+    )
+    return prompt.to_string()
+
+
+def build_rag_answer_prompt(
+    *,
+    question: str,
+    job_docs: list[dict],
+    news_docs: list[dict],
+) -> str:
+    prompt = get_rag_answer_prompt_template().invoke(
+        {
+            "question": question,
+            "job_docs_json": json.dumps(job_docs, ensure_ascii=False, indent=2),
+            "news_docs_json": json.dumps(news_docs, ensure_ascii=False, indent=2),
+        }
+    )
+    return prompt.to_string()

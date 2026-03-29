@@ -3,8 +3,82 @@ from __future__ import annotations
 from app.workflows import graph_flow as graph_module
 
 
+class FakeMemoryService:
+    last_instance: "FakeMemoryService | None" = None
+
+    def __init__(self) -> None:
+        self.load_calls: list[str] = []
+        self.persist_calls: list[dict] = []
+        FakeMemoryService.last_instance = self
+
+    def load_session_memory(self, session_id: str) -> dict:
+        self.load_calls.append(session_id)
+        return {
+            "session_id": session_id,
+            "recent_messages": [
+                {"id": 1, "role": "user", "content": "先分析腾讯游戏招聘布局"},
+                {"id": 2, "role": "assistant", "content": "已经给出腾讯游戏招聘布局摘要"},
+            ],
+            "session_summary": "The session focuses on Tencent Games hiring and news analysis.",
+            "memory_context": (
+                "Session summary:\nThe session focuses on Tencent Games hiring and news analysis.\n\n"
+                "Recent conversation:\nUser: 先分析腾讯游戏招聘布局\n"
+                "Assistant: 已经给出腾讯游戏招聘布局摘要"
+            ),
+            "summary_updated_at": "2026-03-29T12:00:00",
+            "message_count": 2,
+            "error": None,
+        }
+
+    def persist_turn(
+        self,
+        *,
+        session_id: str,
+        user_question: str,
+        assistant_answer: str,
+        assistant_payload: dict | None = None,
+    ) -> dict:
+        self.persist_calls.append(
+            {
+                "session_id": session_id,
+                "user_question": user_question,
+                "assistant_answer": assistant_answer,
+                "assistant_payload": assistant_payload,
+            }
+        )
+        return {
+            "session_id": session_id,
+            "recent_messages": [
+                {"id": 3, "role": "user", "content": user_question},
+                {"id": 4, "role": "assistant", "content": assistant_answer},
+            ],
+            "session_summary": "Tencent Games remains the focus across hiring and news signals.",
+            "memory_context": "Updated memory context",
+            "summary_updated_at": "2026-03-29T12:05:00",
+            "message_count": 4,
+            "summary_updated": True,
+            "error": None,
+        }
+
+
 class FakeRouterAgent:
-    def run(self, question: str, *, need_chart_requested: bool = False) -> dict:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def run(
+        self,
+        question: str,
+        *,
+        need_chart_requested: bool = False,
+        memory_context: str = "",
+    ) -> dict:
+        self.calls.append(
+            {
+                "question": question,
+                "need_chart_requested": need_chart_requested,
+                "memory_context": memory_context,
+            }
+        )
         if "画出" in question:
             return {
                 "intent_type": "visualization_request",
@@ -27,7 +101,7 @@ class FakeRouterAgent:
 
 
 class FakeSQLAgent:
-    def run(self, *, question: str, filters: dict) -> dict:
+    def run(self, *, question: str, filters: dict, memory_context: str = "") -> dict:
         if "画出" in question:
             return {
                 "sql": "SELECT company_name, 10 AS job_count",
@@ -41,7 +115,7 @@ class FakeSQLAgent:
             "columns": [],
             "rows": [],
             "summary": "SQL generation returned an error.",
-            "error": "资讯与综合判断部分不适合直接用 SQL 回答。",
+            "error": "The question contains non-SQL reasoning parts and only RAG evidence should continue.",
         }
 
 
@@ -52,6 +126,7 @@ class FakeRAGAgent:
         question: str,
         retrieval_scope: str,
         filters: dict,
+        memory_context: str = "",
         top_k: int = 5,
         generate_answer: bool = False,
     ) -> dict:
@@ -96,50 +171,80 @@ class FakeAnalysisAgent:
         job_docs: list[dict],
         news_docs: list[dict],
         chart_result: dict | None,
+        memory_context: str = "",
     ) -> dict:
         return {
             "question_summary": question,
-            "data_basis": ["招聘结构化事实", "资讯语义证据"],
+            "data_basis": ["structured hiring facts", "news evidence"],
             "job_evidence": ["job-evidence"],
             "news_evidence": ["news-evidence"],
-            "key_findings": ["招聘与资讯均提供了相关线索。"],
+            "key_findings": ["Both hiring and news evidence are available."],
             "chart_explanation": "No chart.",
-            "intelligence_judgment": "可以给出初步判断。",
-            "limitations": ["SQL 只作为辅助证据。"],
+            "intelligence_judgment": "A preliminary judgment can be formed.",
+            "limitations": ["SQL is only supportive evidence here."],
         }
 
 
-def test_mixed_workflow_degrades_sql_failure_without_failing_flow(monkeypatch) -> None:
+def _build_runner(monkeypatch) -> graph_module.WorkflowRunner:
+    monkeypatch.setattr(graph_module, "MemoryService", FakeMemoryService)
     monkeypatch.setattr(graph_module, "RouterAgent", FakeRouterAgent)
     monkeypatch.setattr(graph_module, "SQLAgent", FakeSQLAgent)
     monkeypatch.setattr(graph_module, "RAGAgent", FakeRAGAgent)
     monkeypatch.setattr(graph_module, "ChartAgent", FakeChartAgent)
     monkeypatch.setattr(graph_module, "AnalysisAgent", FakeAnalysisAgent)
+    return graph_module.WorkflowRunner()
 
-    runner = graph_module.WorkflowRunner()
-    result = runner.run_query("分析腾讯游戏近期研发布局，并结合招聘和资讯给出判断")
+
+def test_mixed_workflow_degrades_sql_failure_without_failing_flow(monkeypatch) -> None:
+    runner = _build_runner(monkeypatch)
+
+    result = runner.run_query(
+        "分析腾讯游戏近期研发布局，并结合招聘和资讯给出判断",
+        session_id="session-mixed",
+    )
 
     assert result["success"] is True
+    assert result["session_id"] == "session-mixed"
     assert result["error_message"] is None
     assert result["trace"]["retrieval_scope"] == "both"
-    assert result["sql_result"]["error"] == "资讯与综合判断部分不适合直接用 SQL 回答。"
+    assert result["sql_result"]["error"] == (
+        "The question contains non-SQL reasoning parts and only RAG evidence should continue."
+    )
     assert len(result["retrieved_docs"]["job_docs"]) == 1
     assert len(result["retrieved_docs"]["news_docs"]) == 1
     assert result["analysis_result"]["key_findings"]
+    assert result["memory"]["summary_updated"] is True
 
 
 def test_chart_workflow_returns_chart_payload(monkeypatch) -> None:
-    monkeypatch.setattr(graph_module, "RouterAgent", FakeRouterAgent)
-    monkeypatch.setattr(graph_module, "SQLAgent", FakeSQLAgent)
-    monkeypatch.setattr(graph_module, "RAGAgent", FakeRAGAgent)
-    monkeypatch.setattr(graph_module, "ChartAgent", FakeChartAgent)
-    monkeypatch.setattr(graph_module, "AnalysisAgent", FakeAnalysisAgent)
+    runner = _build_runner(monkeypatch)
 
-    runner = graph_module.WorkflowRunner()
-    result = runner.run_query("画出各企业岗位数量对比图", need_chart=True)
+    result = runner.run_query(
+        "画出各企业岗位数量对比图",
+        session_id="session-chart",
+        need_chart=True,
+    )
 
     assert result["success"] is True
     assert result["trace"]["need_chart"] is True
     assert result["trace"]["need_rag"] is False
     assert result["chart_result"]["chart_type"] == "bar"
     assert result["retrieved_docs"]["total_count"] == 0
+
+
+def test_workflow_loads_and_persists_session_memory(monkeypatch) -> None:
+    runner = _build_runner(monkeypatch)
+
+    result = runner.run_query(
+        "继续结合资讯说一下",
+        session_id="session-memory",
+    )
+
+    memory_service = FakeMemoryService.last_instance
+    assert memory_service is not None
+    assert memory_service.load_calls == ["session-memory"]
+    assert memory_service.persist_calls[0]["session_id"] == "session-memory"
+    assert result["memory"]["session_summary"] == (
+        "Tencent Games remains the focus across hiring and news signals."
+    )
+    assert result["trace"]["recent_message_count"] == 2

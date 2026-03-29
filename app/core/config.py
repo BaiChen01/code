@@ -31,6 +31,10 @@ class AppConfig:
     chroma_news_dir: str
     job_collection_name: str
     news_collection_name: str
+    memory_recent_message_limit: int
+    memory_summary_trigger_messages: int
+    memory_summary_refresh_stride: int
+    memory_summary_window_messages: int
 
     @property
     def mysql_uri(self) -> str:
@@ -108,5 +112,17 @@ def get_settings() -> AppConfig:
         job_collection_name=get_env_value("JOB_COLLECTION_NAME", "job_embeddings"),
         news_collection_name=get_env_value(
             "NEWS_COLLECTION_NAME", "game_news_yxrb"
+        ),
+        memory_recent_message_limit=int(
+            get_env_value("MEMORY_RECENT_MESSAGE_LIMIT", "8")
+        ),
+        memory_summary_trigger_messages=int(
+            get_env_value("MEMORY_SUMMARY_TRIGGER_MESSAGES", "6")
+        ),
+        memory_summary_refresh_stride=int(
+            get_env_value("MEMORY_SUMMARY_REFRESH_STRIDE", "4")
+        ),
+        memory_summary_window_messages=int(
+            get_env_value("MEMORY_SUMMARY_WINDOW_MESSAGES", "12")
         ),
     )

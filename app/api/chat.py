@@ -22,20 +22,31 @@ def query_chat(request: ChatQueryRequest) -> ChatQueryResponse:
     try:
         payload = run_query(
             request.question,
+            session_id=request.session_id,
             need_chart=request.need_chart,
             refresh_mode=request.refresh_mode,
         )
     except Exception as exc:
+        error_text = str(exc) or "Unknown backend error."
         payload = {
             "success": False,
-            "answer": "Processing failed. Check model, database, and vector store settings.",
+            "answer": f"Processing failed: {error_text}",
+            "session_id": request.session_id,
             "intent_type": None,
             "trace": {},
             "sql_result": None,
             "retrieved_docs": {"job_docs": [], "news_docs": [], "total_count": 0},
             "chart_result": None,
             "analysis_result": None,
-            "error_message": str(exc),
+            "memory": {
+                "session_id": request.session_id,
+                "recent_message_count": 0,
+                "session_summary": None,
+                "summary_updated": False,
+                "summary_updated_at": None,
+                "memory_error": None,
+            },
+            "error_message": error_text,
         }
     return ChatQueryResponse(**payload)
 

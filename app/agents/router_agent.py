@@ -75,6 +75,23 @@ DUAL_RAG_HINTS = [
     "结合招聘和新闻",
     "结合岗位和新闻",
 ]
+FOLLOW_UP_HINT_KEYWORDS = [
+    "继续",
+    "刚才",
+    "刚刚",
+    "上一轮",
+    "上一个",
+    "前面",
+    "上面",
+    "再结合",
+    "进一步",
+    "补充",
+    "这家公司",
+    "那个公司",
+    "该公司",
+    "这些岗位",
+    "这些资讯",
+]
 
 
 def normalize_question(question: str) -> str:
@@ -195,6 +212,12 @@ def classify_by_rules(
     }
 
 
+def should_expand_with_memory(question: str, filters: Dict[str, Optional[str]]) -> bool:
+    if any(keyword in question for keyword in FOLLOW_UP_HINT_KEYWORDS):
+        return True
+    return len(question) <= 18 and not any(filters.values())
+
+
 def validate_route_result(route_result: Dict[str, Any]) -> Dict[str, Any]:
     route_result["intent_type"] = (
         route_result.get("intent_type")
@@ -224,10 +247,22 @@ class RouterAgent:
         )
         self.prompt_template = get_router_prompt_template()
 
-    def _route_by_llm(self, *, question: str) -> Dict[str, Any]:
-        return self.llm.invoke_json(self.prompt_template, {"question": question})
+    def _route_by_llm(self, *, question: str, memory_context: str = "") -> Dict[str, Any]:
+        return self.llm.invoke_json(
+            self.prompt_template,
+            {
+                "question": question,
+                "memory_context": memory_context or "N/A",
+            },
+        )
 
-    def route(self, question: str, *, need_chart_requested: bool = False) -> Dict[str, Any]:
+    def route(
+        self,
+        question: str,
+        *,
+        need_chart_requested: bool = False,
+        memory_context: str = "",
+    ) -> Dict[str, Any]:
         normalized_question = normalize_question(question)
         if not normalized_question:
             return {
@@ -248,8 +283,12 @@ class RouterAgent:
             }
 
         filters = extract_filters(normalized_question)
+        rule_question = normalized_question
+        if memory_context and should_expand_with_memory(normalized_question, filters):
+            rule_question = f"{normalized_question}\n\nSession memory:\n{memory_context}"
+            filters = extract_filters(rule_question)
         rule_result = classify_by_rules(
-            normalized_question,
+            rule_question,
             filters,
             need_chart_requested=need_chart_requested,
         )
@@ -264,7 +303,10 @@ class RouterAgent:
             return validate_route_result(result)
 
         try:
-            llm_result = self._route_by_llm(question=normalized_question)
+            llm_result = self._route_by_llm(
+                question=normalized_question,
+                memory_context=memory_context,
+            )
         except Exception:
             return validate_route_result(result)
 
@@ -285,9 +327,28 @@ class RouterAgent:
             merged["retrieval_scope"] = "none"
         return validate_route_result(merged)
 
-    def run(self, question: str, *, need_chart_requested: bool = False) -> Dict[str, Any]:
-        return self.route(question, need_chart_requested=need_chart_requested)
+    def run(
+        self,
+        question: str,
+        *,
+        need_chart_requested: bool = False,
+        memory_context: str = "",
+    ) -> Dict[str, Any]:
+        return self.route(
+            question,
+            need_chart_requested=need_chart_requested,
+            memory_context=memory_context,
+        )
 
 
-def route_question(question: str, *, need_chart_requested: bool = False) -> Dict[str, Any]:
-    return RouterAgent().run(question, need_chart_requested=need_chart_requested)
+def route_question(
+    question: str,
+    *,
+    need_chart_requested: bool = False,
+    memory_context: str = "",
+) -> Dict[str, Any]:
+    return RouterAgent().run(
+        question,
+        need_chart_requested=need_chart_requested,
+        memory_context=memory_context,
+    )

@@ -14,9 +14,19 @@ class RetrievedDocsResponse(BaseModel):
     total_count: int = 0
 
 
+class ChatMemoryResponse(BaseModel):
+    session_id: str | None = None
+    recent_message_count: int = 0
+    session_summary: str | None = None
+    summary_updated: bool = False
+    summary_updated_at: str | None = None
+    memory_error: str | None = None
+
+
 class ChatQueryResponse(BaseModel):
     success: bool
     answer: str
+    session_id: str | None = None
     intent_type: str | None = None
     trace: dict[str, Any] = Field(default_factory=dict)
     sql_result: dict[str, Any] | None = None
@@ -25,4 +35,5 @@ class ChatQueryResponse(BaseModel):
     )
     chart_result: dict[str, Any] | None = None
     analysis_result: dict[str, Any] | None = None
+    memory: ChatMemoryResponse = Field(default_factory=ChatMemoryResponse)
     error_message: str | None = None

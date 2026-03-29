@@ -16,9 +16,23 @@ from app.agents.router_agent import RouterAgent
 from app.agents.sql_agent import SQLAgent
 from app.core.logger import get_logger
 from app.core.state_schema import WorkflowState, build_initial_state
+from app.services.memory_service import MemoryService
 
 
 logger = get_logger(__name__)
+FOLLOW_UP_HINTS = (
+    "继续",
+    "刚才",
+    "上一个",
+    "上一轮",
+    "这家公司",
+    "那个公司",
+    "该公司",
+    "这些岗位",
+    "这些资讯",
+    "进一步",
+    "补充",
+)
 
 
 def _append_completed_step(state: WorkflowState, step_name: str) -> list[str]:
@@ -35,6 +49,25 @@ def _next_step(state: WorkflowState) -> str:
     return "finalize"
 
 
+def _should_resolve_with_memory(question: str, memory_context: str) -> bool:
+    normalized_question = (question or "").strip()
+    if not normalized_question or not memory_context.strip():
+        return False
+    if any(token in normalized_question for token in FOLLOW_UP_HINTS):
+        return True
+    return len(normalized_question) <= 18
+
+
+def _resolve_question_with_memory(question: str, memory_context: str) -> str:
+    if not _should_resolve_with_memory(question, memory_context):
+        return question
+    return (
+        f"{question}\n\n"
+        "Session memory for follow-up resolution:\n"
+        f"{memory_context}"
+    )
+
+
 class WorkflowRunner:
     def __init__(self) -> None:
         self.router_agent = RouterAgent()
@@ -43,6 +76,7 @@ class WorkflowRunner:
         self.rag_agent = RAGAgent()
         self.chart_agent = ChartAgent()
         self.analysis_agent = AnalysisAgent()
+        self.memory_service = MemoryService()
         self.graph = self._build_graph()
 
     def _is_sql_error_fatal(self, state: WorkflowState, sql_result: Dict[str, Any]) -> bool:
@@ -63,6 +97,7 @@ class WorkflowRunner:
     def _build_graph(self):
         graph = StateGraph(WorkflowState)
 
+        graph.add_node("load_memory", self.load_memory_node)
         graph.add_node("route", self.route_node)
         graph.add_node("plan", self.plan_node)
         graph.add_node("sql", self.sql_node)
@@ -71,8 +106,10 @@ class WorkflowRunner:
         graph.add_node("chart", self.chart_node)
         graph.add_node("analysis", self.analysis_node)
         graph.add_node("finalize", self.finalize_node)
+        graph.add_node("persist_memory", self.persist_memory_node)
 
-        graph.add_edge(START, "route")
+        graph.add_edge(START, "load_memory")
+        graph.add_edge("load_memory", "route")
         graph.add_edge("route", "plan")
 
         graph.add_conditional_edges(
@@ -100,13 +137,31 @@ class WorkflowRunner:
                     "finalize": "finalize",
                 },
             )
-        graph.add_edge("finalize", END)
+        graph.add_edge("finalize", "persist_memory")
+        graph.add_edge("persist_memory", END)
         return graph.compile()
+
+    def load_memory_node(self, state: WorkflowState) -> Dict[str, Any]:
+        memory_bundle = self.memory_service.load_session_memory(state["session_id"])
+        memory_context = memory_bundle.get("memory_context", "")
+        return {
+            "recent_messages": memory_bundle.get("recent_messages", []),
+            "session_summary": memory_bundle.get("session_summary", ""),
+            "memory_context": memory_context,
+            "resolved_question": _resolve_question_with_memory(
+                state["user_question"],
+                memory_context,
+            ),
+            "memory_error": memory_bundle.get("error"),
+            "summary_updated_at": memory_bundle.get("summary_updated_at"),
+            "summary_updated": False,
+        }
 
     def route_node(self, state: WorkflowState) -> Dict[str, Any]:
         route = self.router_agent.run(
-            state["user_question"],
+            state.get("resolved_question", state["user_question"]),
             need_chart_requested=state.get("need_chart_requested", False),
+            memory_context=state.get("memory_context", ""),
         )
         return {"route": route}
 
@@ -120,8 +175,9 @@ class WorkflowRunner:
     def sql_node(self, state: WorkflowState) -> Dict[str, Any]:
         route = state["route"]
         sql_result = self.sql_agent.run(
-            question=state["user_question"],
+            question=state.get("resolved_question", state["user_question"]),
             filters=route.get("filters", {}),
+            memory_context=state.get("memory_context", ""),
         )
         updates: Dict[str, Any] = {
             "sql_result": sql_result,
@@ -134,9 +190,10 @@ class WorkflowRunner:
     def rag_job_node(self, state: WorkflowState) -> Dict[str, Any]:
         route = state["route"]
         rag_result = self.rag_agent.run(
-            question=state["user_question"],
+            question=state.get("resolved_question", state["user_question"]),
             retrieval_scope="job",
             filters=route.get("filters", {}),
+            memory_context=state.get("memory_context", ""),
             generate_answer=route.get("intent_type") == "semantic_retrieval"
             and route.get("retrieval_scope") == "job",
         )
@@ -154,9 +211,10 @@ class WorkflowRunner:
     def rag_news_node(self, state: WorkflowState) -> Dict[str, Any]:
         route = state["route"]
         rag_result = self.rag_agent.run(
-            question=state["user_question"],
+            question=state.get("resolved_question", state["user_question"]),
             retrieval_scope="news",
             filters=route.get("filters", {}),
+            memory_context=state.get("memory_context", ""),
             generate_answer=route.get("intent_type") == "semantic_retrieval"
             and route.get("retrieval_scope") == "news",
         )
@@ -184,12 +242,13 @@ class WorkflowRunner:
 
     def analysis_node(self, state: WorkflowState) -> Dict[str, Any]:
         analysis_result = self.analysis_agent.run(
-            question=state["user_question"],
+            question=state.get("resolved_question", state["user_question"]),
             route=state["route"],
             sql_result=state.get("sql_result"),
             job_docs=state.get("job_docs", []),
             news_docs=state.get("news_docs", []),
             chart_result=state.get("chart_result"),
+            memory_context=state.get("memory_context", ""),
         )
         return {
             "analysis_result": analysis_result,
@@ -206,6 +265,36 @@ class WorkflowRunner:
         return {
             "answer": answer,
             "rag_result": rag_result,
+        }
+
+    def persist_memory_node(self, state: WorkflowState) -> Dict[str, Any]:
+        assistant_payload = {
+            "intent_type": state.get("route", {}).get("intent_type"),
+            "trace": {
+                "intent_type": state.get("route", {}).get("intent_type"),
+                "plan_steps": state.get("plan_steps", []),
+                "retrieval_scope": state.get("route", {}).get("retrieval_scope", "none"),
+            },
+            "sql_result": state.get("sql_result"),
+            "retrieved_docs": {
+                "total_count": len(state.get("job_docs", [])) + len(state.get("news_docs", [])),
+            },
+            "chart_result": state.get("chart_result"),
+            "error_message": state.get("error_message"),
+        }
+        memory_bundle = self.memory_service.persist_turn(
+            session_id=state["session_id"],
+            user_question=state["user_question"],
+            assistant_answer=state.get("answer") or "No result was produced.",
+            assistant_payload=assistant_payload,
+        )
+        return {
+            "recent_messages": memory_bundle.get("recent_messages", state.get("recent_messages", [])),
+            "session_summary": memory_bundle.get("session_summary", state.get("session_summary", "")),
+            "memory_context": memory_bundle.get("memory_context", state.get("memory_context", "")),
+            "memory_error": memory_bundle.get("error") or state.get("memory_error"),
+            "summary_updated_at": memory_bundle.get("summary_updated_at"),
+            "summary_updated": bool(memory_bundle.get("summary_updated", False)),
         }
 
     def _build_answer(self, state: WorkflowState) -> str:
@@ -273,11 +362,13 @@ class WorkflowRunner:
         self,
         question: str,
         *,
+        session_id: str | None = None,
         need_chart: bool = False,
         refresh_mode: str = "none",
     ) -> Dict[str, Any]:
         state = build_initial_state(
             question,
+            session_id=session_id,
             need_chart=need_chart,
             refresh_mode=refresh_mode,
         )
@@ -295,6 +386,7 @@ def build_response(state: WorkflowState) -> Dict[str, Any]:
     return {
         "success": not bool(state.get("error_message")),
         "answer": state.get("answer", ""),
+        "session_id": state.get("session_id"),
         "intent_type": route.get("intent_type"),
         "trace": {
             "intent_type": route.get("intent_type"),
@@ -304,11 +396,21 @@ def build_response(state: WorkflowState) -> Dict[str, Any]:
             "analysis_mode": route.get("analysis_mode"),
             "retrieval_scope": route.get("retrieval_scope", "none"),
             "plan_steps": state.get("plan_steps", []),
+            "recent_message_count": len(state.get("recent_messages", [])),
+            "has_session_summary": bool(state.get("session_summary")),
         },
         "sql_result": state.get("sql_result"),
         "retrieved_docs": retrieved_docs,
         "chart_result": state.get("chart_result"),
         "analysis_result": state.get("analysis_result"),
+        "memory": {
+            "session_id": state.get("session_id"),
+            "recent_message_count": len(state.get("recent_messages", [])),
+            "session_summary": state.get("session_summary") or None,
+            "summary_updated": bool(state.get("summary_updated", False)),
+            "summary_updated_at": state.get("summary_updated_at"),
+            "memory_error": state.get("memory_error"),
+        },
         "error_message": state.get("error_message"),
     }
 
@@ -318,9 +420,16 @@ def get_workflow_runner() -> WorkflowRunner:
     return WorkflowRunner()
 
 
-def run_query(question: str, *, need_chart: bool = False, refresh_mode: str = "none") -> Dict[str, Any]:
+def run_query(
+    question: str,
+    *,
+    session_id: str | None = None,
+    need_chart: bool = False,
+    refresh_mode: str = "none",
+) -> Dict[str, Any]:
     return get_workflow_runner().run_query(
         question,
+        session_id=session_id,
         need_chart=need_chart,
         refresh_mode=refresh_mode,
     )

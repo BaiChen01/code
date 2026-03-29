@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class ChatQueryRequest(BaseModel):
     question: str = Field(..., min_length=1)
+    session_id: str | None = Field(default=None, min_length=1)
     need_chart: bool = False
     refresh_mode: str = "none"
 

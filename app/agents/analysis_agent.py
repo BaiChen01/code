@@ -49,6 +49,7 @@ class AnalysisAgent:
         job_docs: List[Dict[str, Any]],
         news_docs: List[Dict[str, Any]],
         chart_result: Optional[Dict[str, Any]],
+        memory_context: str = "",
     ) -> Dict[str, Any]:
         data_basis = []
         if sql_result and sql_result.get("rows") is not None:
@@ -95,12 +96,14 @@ class AnalysisAgent:
         job_docs: List[Dict[str, Any]],
         news_docs: List[Dict[str, Any]],
         chart_result: Optional[Dict[str, Any]],
+        memory_context: str = "",
     ) -> Dict[str, Any]:
         try:
             return self.llm.invoke_json(
                 self.prompt_template,
                 {
                     "question": question,
+                    "memory_context": memory_context or "N/A",
                     "route_json": json.dumps(route, ensure_ascii=False, indent=2),
                     "sql_result_json": json.dumps(
                         sql_result or {}, ensure_ascii=False, indent=2
@@ -122,4 +125,5 @@ class AnalysisAgent:
                 job_docs=job_docs,
                 news_docs=news_docs,
                 chart_result=chart_result,
+                memory_context=memory_context,
             )

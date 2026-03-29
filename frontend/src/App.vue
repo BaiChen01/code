@@ -365,6 +365,7 @@ async function submitQuestion(questionOverride = "") {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         question,
+        session_id: activeSession.value.id,
         need_chart: Boolean(activeSession.value.needChart),
         refresh_mode: "none",
       }),
@@ -383,9 +384,13 @@ async function submitQuestion(questionOverride = "") {
 
     const normalizedPayload = sanitizePayload(payload);
     activeSession.value.latestPayload = normalizedPayload;
+    const assistantText =
+      (!payload.success && payload.error_message) ||
+      payload.answer ||
+      "本轮没有生成自然语言回答。";
     appendMessage(
       "assistant",
-      payload.answer || "本轮没有生成自然语言回答。",
+      assistantText,
       normalizedPayload
     );
   } catch (error) {

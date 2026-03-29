@@ -41,6 +41,9 @@ def get_analysis_prompt_template() -> ChatPromptTemplate:
 用户问题：
 {question}
 
+会话记忆（如无则 N/A）：
+{memory_context}
+
 路由结果：
 {route_json}
 
@@ -71,10 +74,12 @@ def build_analysis_prompt(
     job_docs: list[dict],
     news_docs: list[dict],
     chart_result: dict | None,
+    memory_context: str = "",
 ) -> str:
     prompt = get_analysis_prompt_template().invoke(
         {
             "question": question,
+            "memory_context": memory_context or "N/A",
             "route_json": json.dumps(route, ensure_ascii=False, indent=2),
             "sql_result_json": json.dumps(sql_result or {}, ensure_ascii=False, indent=2),
             "job_docs_json": json.dumps(job_docs, ensure_ascii=False, indent=2),

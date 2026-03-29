@@ -43,6 +43,9 @@ def get_sql_prompt_template() -> ChatPromptTemplate:
 路由过滤条件：
 {filters_json}
 
+会话记忆（如无则 N/A）：
+{memory_context}
+
 用户问题：
 {question}
 
@@ -68,6 +71,7 @@ def build_sql_prompt(
     question: str,
     filters: dict,
     sql_task: str,
+    memory_context: str = "",
     previous_sql: str = "",
     previous_error: str = "",
 ) -> str:
@@ -75,6 +79,7 @@ def build_sql_prompt(
         {
             "schema_info": schema_info,
             "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+            "memory_context": memory_context or "N/A",
             "question": question,
             "sql_task": sql_task,
             "previous_sql": previous_sql or "N/A",

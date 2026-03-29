@@ -37,6 +37,9 @@ def get_router_prompt_template() -> ChatPromptTemplate:
             (
                 "human",
                 """
+会话记忆（如无则 N/A）：
+{memory_context}
+
 用户问题：
 {question}
 
@@ -48,5 +51,7 @@ def get_router_prompt_template() -> ChatPromptTemplate:
 
 
 def build_router_prompt(question: str) -> str:
-    prompt = get_router_prompt_template().invoke({"question": question})
+    prompt = get_router_prompt_template().invoke(
+        {"question": question, "memory_context": "N/A"}
+    )
     return prompt.to_string()

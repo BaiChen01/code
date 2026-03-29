@@ -51,6 +51,9 @@ def get_rag_query_prompt_template() -> ChatPromptTemplate:
 路由过滤条件：
 {filters_json}
 
+会话记忆（如无则 N/A）：
+{memory_context}
+
 用户问题：
 {question}
 
@@ -71,6 +74,9 @@ def get_rag_answer_prompt_template() -> ChatPromptTemplate:
 用户问题：
 {question}
 
+会话记忆（如无则 N/A）：
+{memory_context}
+
 招聘证据：
 {job_docs_json}
 
@@ -84,12 +90,15 @@ def get_rag_answer_prompt_template() -> ChatPromptTemplate:
     )
 
 
-def build_rag_query_prompt(question: str, source_scope: str, filters: dict) -> str:
+def build_rag_query_prompt(
+    question: str, source_scope: str, filters: dict, memory_context: str = ""
+) -> str:
     prompt = get_rag_query_prompt_template().invoke(
         {
             "question": question,
             "source_scope": source_scope,
             "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+            "memory_context": memory_context or "N/A",
         }
     )
     return prompt.to_string()
@@ -100,10 +109,12 @@ def build_rag_answer_prompt(
     question: str,
     job_docs: list[dict],
     news_docs: list[dict],
+    memory_context: str = "",
 ) -> str:
     prompt = get_rag_answer_prompt_template().invoke(
         {
             "question": question,
+            "memory_context": memory_context or "N/A",
             "job_docs_json": json.dumps(job_docs, ensure_ascii=False, indent=2),
             "news_docs_json": json.dumps(news_docs, ensure_ascii=False, indent=2),
         }

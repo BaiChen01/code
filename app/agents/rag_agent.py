@@ -61,6 +61,7 @@ class RAGAgent:
         question: str,
         source_scope: str,
         filters: Dict[str, Any],
+        memory_context: str = "",
     ) -> Dict[str, Any]:
         try:
             result = self.query_llm.invoke_json(
@@ -69,6 +70,7 @@ class RAGAgent:
                     "question": question,
                     "source_scope": source_scope,
                     "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+                    "memory_context": memory_context or "N/A",
                 },
             )
         except Exception:
@@ -86,12 +88,14 @@ class RAGAgent:
         question: str,
         job_docs: list[dict],
         news_docs: list[dict],
+        memory_context: str = "",
     ) -> Optional[Dict[str, Any]]:
         try:
             return self.summary_llm.invoke_json(
                 self.answer_prompt_template,
                 {
                     "question": question,
+                    "memory_context": memory_context or "N/A",
                     "job_docs_json": json.dumps(job_docs[:5], ensure_ascii=False, indent=2),
                     "news_docs_json": json.dumps(news_docs[:5], ensure_ascii=False, indent=2),
                 },
@@ -123,6 +127,7 @@ class RAGAgent:
         question: str,
         retrieval_scope: str,
         filters: Dict[str, Any],
+        memory_context: str = "",
         top_k: int = 5,
         generate_answer: bool = False,
     ) -> Dict[str, Any]:
@@ -130,6 +135,7 @@ class RAGAgent:
             question=question,
             source_scope=retrieval_scope,
             filters=filters,
+            memory_context=memory_context,
         )
 
         rag_result = self.vector_service.search_sources(
@@ -148,6 +154,7 @@ class RAGAgent:
                 question=question,
                 job_docs=rag_result["job_docs"],
                 news_docs=rag_result["news_docs"],
+                memory_context=memory_context,
             )
 
         return {

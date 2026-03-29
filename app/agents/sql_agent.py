@@ -67,6 +67,7 @@ class SQLAgent:
         *,
         question: str,
         filters: Dict[str, Any],
+        memory_context: str = "",
         previous_sql: str = "",
         previous_error: str = "",
     ) -> Dict[str, Any]:
@@ -75,6 +76,7 @@ class SQLAgent:
             {
                 "schema_info": self.query_service.get_schema_description(),
                 "filters_json": json.dumps(filters, ensure_ascii=False, indent=2),
+                "memory_context": memory_context or "N/A",
                 "question": question,
                 "sql_task": self._build_sql_task(question=question, filters=filters),
                 "previous_sql": previous_sql or "N/A",
@@ -82,7 +84,13 @@ class SQLAgent:
             },
         )
 
-    def run(self, *, question: str, filters: Dict[str, Any]) -> Dict[str, Any]:
+    def run(
+        self,
+        *,
+        question: str,
+        filters: Dict[str, Any],
+        memory_context: str = "",
+    ) -> Dict[str, Any]:
         previous_sql = ""
         previous_error = ""
         last_error = "SQL generation did not run."
@@ -92,6 +100,7 @@ class SQLAgent:
                 payload = self._generate_sql(
                     question=question,
                     filters=filters,
+                    memory_context=memory_context,
                     previous_sql=previous_sql,
                     previous_error=previous_error,
                 )

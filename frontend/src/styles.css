@@ -33,7 +33,7 @@ body {
     radial-gradient(circle at top left, rgba(88, 215, 196, 0.15), transparent 28%),
     radial-gradient(circle at top right, rgba(255, 182, 92, 0.13), transparent 24%),
     linear-gradient(180deg, #16303c 0%, #0b161d 52%, #081117 100%);
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 button,
@@ -56,8 +56,13 @@ textarea {
 .app-shell {
   position: relative;
   width: min(100%, var(--content-width));
+  height: 100vh;
   margin: 0 auto;
-  padding: 14px 16px 26px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 14px;
+  overflow: hidden;
 }
 
 .card {
@@ -137,8 +142,10 @@ textarea {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(224px, 250px) minmax(0, 1.42fr) minmax(336px, 0.9fr);
-  gap: 16px;
+  grid-template-columns: minmax(224px, 246px) minmax(0, 1.52fr) minmax(300px, 0.8fr);
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
 }
 
 .panel,
@@ -151,22 +158,27 @@ textarea {
 .inspector-column,
 .session-rail {
   min-width: 0;
+  min-height: 0;
 }
 
 .chat-panel {
-  min-height: calc(100vh - 150px);
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .inspector-column {
-  display: grid;
-  gap: 14px;
-  align-content: start;
+  display: block;
+  align-self: start;
+  min-height: 0;
 }
 
 .session-rail {
   display: grid;
-  align-content: start;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 12px;
+  height: 100%;
 }
 
 .panel-head {
@@ -184,6 +196,89 @@ textarea {
 .panel-head h2 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+.inspector-sidebar {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  padding-right: 14px;
+}
+
+.inspector-sidebar-head {
+  margin-bottom: 0;
+}
+
+.inspector-drawer {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.inspector-drawer[open] {
+  border-color: rgba(88, 215, 196, 0.18);
+  background: rgba(88, 215, 196, 0.035);
+}
+
+.inspector-drawer-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 13px;
+  cursor: pointer;
+}
+
+.inspector-drawer-summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-drawer-summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.inspector-drawer[open] .inspector-drawer-summary::after {
+  content: "−";
+  color: var(--accent-cyan);
+  border-color: rgba(88, 215, 196, 0.24);
+}
+
+.inspector-drawer-summary h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.drawer-meta {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.drawer-body {
+  padding: 0 14px 14px;
+  max-height: min(42vh, 380px);
+  overflow: auto;
 }
 
 .status-pill {
@@ -234,9 +329,11 @@ textarea {
 .session-list {
   display: grid;
   gap: 8px;
-  max-height: calc(100vh - 250px);
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   padding-right: 4px;
+  align-content: start;
 }
 
 .session-card {
@@ -310,12 +407,14 @@ textarea {
 }
 
 .timeline {
-  min-height: 560px;
-  max-height: calc(100vh - 330px);
+  min-height: 0;
+  height: 100%;
+  max-height: none;
   overflow: auto;
   display: grid;
   gap: 12px;
   padding-right: 4px;
+  align-content: start;
 }
 
 .message {
@@ -642,7 +741,7 @@ textarea {
 
 @media (max-width: 1460px) {
   .workspace {
-    grid-template-columns: minmax(210px, 236px) minmax(0, 1.28fr) minmax(320px, 0.9fr);
+    grid-template-columns: minmax(206px, 228px) minmax(0, 1.32fr) minmax(286px, 0.78fr);
   }
 }
 
@@ -653,15 +752,37 @@ textarea {
 
   .inspector-column {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inspector-sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
   }
 }
 
 @media (max-width: 1120px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .hero-compact,
   .workspace,
   .inspector-column {
     grid-template-columns: 1fr;
+  }
+
+  .workspace,
+  .chat-panel,
+  .session-rail,
+  .inspector-sidebar {
+    height: auto;
   }
 
   .hero-facts {
@@ -669,8 +790,10 @@ textarea {
   }
 
   .timeline,
-  .session-list {
+  .session-list,
+  .drawer-body {
     max-height: none;
+    overflow: visible;
   }
 }
 
